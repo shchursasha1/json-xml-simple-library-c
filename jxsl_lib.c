@@ -43,21 +43,40 @@ bool create_file(const char* filename, const char* format) {
 #pragma endregion
 
 #pragma region iterators
-// Find all keys in the JSON/XML file
+// Function to find keys in a JSON or XML file
 bool find_keys(const char* filename, char** keys, int* num_keys) {
-    FILE* file = open_file(filename, "r");
-    if (!file) return false;
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        return false;
+    }
 
     char buffer[1024];
     int key_count = 0;
+    bool is_json = strstr(filename, ".json") != NULL;
 
     while (fscanf(file, "%s", buffer) != EOF) {
-        if (strchr(buffer, ':')) { // Assuming JSON-like "key": value pairs
-            char* key = strtok(buffer, ":");
-            if (key && key_count < *num_keys) {
-                keys[key_count++] = strdup(key);
+        if (is_json) {
+            // For JSON: Look for "key": patterns
+            if (strchr(buffer, ':')) {
+                char* key = strtok(buffer, ":");
+                if (key && key[0] == '\"' && key[strlen(key) - 1] == '\"') {
+                    key[strlen(key) - 1] = '\0'; // Remove trailing quote
+                    keys[key_count++] = strdup(key + 1); // Skip leading quote
+                }
+            }
+        } else {
+            // For XML: Look for <key> patterns
+            if (buffer[0] == '<' && buffer[1] != '/') {
+                char* key_end = strchr(buffer, '>');
+                if (key_end) {
+                    *key_end = '\0'; // Null-terminate the key
+                    keys[key_count++] = strdup(buffer + 1); // Skip leading '<'
+                }
             }
         }
+
+        if (key_count >= *num_keys) break; // Prevent overflow
     }
 
     *num_keys = key_count;
@@ -65,18 +84,36 @@ bool find_keys(const char* filename, char** keys, int* num_keys) {
     return true;
 }
 
-// Iterate through all keys
+// Function to iterate through all keys in a JSON or XML file
 bool iterate_keys(const char* filename) {
-    FILE* file = open_file(filename, "r");
-    if (!file) return false;
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        return false;
+    }
 
     char buffer[1024];
+    bool is_json = strstr(filename, ".json") != NULL;
+
     printf("Iterating keys:\n");
     while (fscanf(file, "%s", buffer) != EOF) {
-        if (strchr(buffer, ':')) {
-            char* key = strtok(buffer, ":");
-            if (key) {
-                printf("Key: %s\n", key);
+        if (is_json) {
+            // For JSON: Look for "key": patterns
+            if (strchr(buffer, ':')) {
+                char* key = strtok(buffer, ":");
+                if (key && key[0] == '\"' && key[strlen(key) - 1] == '\"') {
+                    key[strlen(key) - 1] = '\0'; // Remove trailing quote
+                    printf("Key: %s\n", key + 1); // Skip leading quote
+                }
+            }
+        } else {
+            // For XML: Look for <key> patterns
+            if (buffer[0] == '<' && buffer[1] != '/') {
+                char* key_end = strchr(buffer, '>');
+                if (key_end) {
+                    *key_end = '\0'; // Null-terminate the key
+                    printf("Key: %s\n", buffer + 1); // Skip leading '<'
+                }
             }
         }
     }
@@ -255,22 +292,7 @@ bool add_data_xml(const char* filename, const char* key, const char* value) {
 }
 #pragma endregion
 
-static bool replace_line(FILE* temp_file, const char* line, const char* key, const char* new_value) {
-    if (strstr(line, key)) { // Key found in the line
-        char* key_start = strchr(line, '\"'); // Locate key's starting "
-        if (key_start) {
-            char* value_start = strchr(line, ':'); // Locate value's starting :
-            if (value_start) {
-                fprintf(temp_file, "%.*s: \"%s\",\n", (int)(value_start - line), line, new_value);
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 #pragma region edit_data
-
 bool edit_data(const char* filename, const char* key, const char* new_value) {
     // Determine file type based on extension
     const char* ext = strrchr(filename, '.');
@@ -398,14 +420,6 @@ bool edit_data_xml(const char* filename, const char* key, const char* new_value)
     return updated;
 }
 #pragma endregion
-
-// Helper function to skip a line containing the key
-static bool skip_line(FILE* temp_file, const char* line, const char* key) {
-    if (strstr(line, key)) { // Key found in the line
-        return true; // Do not write this line
-    }
-    return false;
-}
 
 #pragma region delete_data
 // Delete data by a given key
